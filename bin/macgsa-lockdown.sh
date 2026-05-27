@@ -193,11 +193,26 @@ install_guardian() {
     /bin/mkdir -p "${INSTALL_LIB_DIR}"
 
     # Copy this script + lib to a stable location the LaunchDaemon can call.
-    /usr/bin/install -m 0755 -o root -g wheel "${SCRIPT_DIR}/macgsa-lockdown.sh" "${INSTALL_BIN_DIR}/macgsa-lockdown.sh"
-    /usr/bin/install -m 0644 -o root -g wheel "${SCRIPT_DIR}/lib-common.sh"     "${INSTALL_BIN_DIR}/lib-common.sh"
+    # When the guardian itself re-invokes us, SCRIPT_DIR already equals
+    # INSTALL_BIN_DIR — skip the self-copy to avoid `install: identical` noise.
+    local src_self="${SCRIPT_DIR}/macgsa-lockdown.sh"
+    local src_lib="${SCRIPT_DIR}/lib-common.sh"
+    local dst_self="${INSTALL_BIN_DIR}/macgsa-lockdown.sh"
+    local dst_lib="${INSTALL_BIN_DIR}/lib-common.sh"
+    if [ "${src_self}" != "${dst_self}" ]; then
+        /usr/bin/install -m 0755 -o root -g wheel "${src_self}" "${dst_self}"
+    fi
+    if [ "${src_lib}" != "${dst_lib}" ]; then
+        /usr/bin/install -m 0644 -o root -g wheel "${src_lib}" "${dst_lib}"
+    fi
 
-    # Write the LaunchDaemon plist.
-    /bin/cat > "${GUARDIAN_PLIST_PATH}" <<PLIST
+    # Render the desired plist into a temp file so we can diff before touching
+    # the real one. Avoids needless bootout/bootstrap cycles — critical because
+    # bootout on a running daemon SIGTERMs *this* process when called from the
+    # guardian itself.
+    local tmp_plist
+    tmp_plist="$(/usr/bin/mktemp /tmp/gsaguardian.XXXXXX.plist)"
+    /bin/cat > "${tmp_plist}" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -229,10 +244,28 @@ install_guardian() {
 </dict>
 </plist>
 PLIST
+
+    local plist_changed=1
+    if [ -f "${GUARDIAN_PLIST_PATH}" ] && \
+       /usr/bin/cmp -s "${tmp_plist}" "${GUARDIAN_PLIST_PATH}"; then
+        plist_changed=0
+    fi
+
+    local already_loaded=1
+    /bin/launchctl print "system/${GUARDIAN_PLIST_LABEL}" >/dev/null 2>&1 || already_loaded=0
+
+    if [ ${plist_changed} -eq 0 ] && [ ${already_loaded} -eq 1 ]; then
+        /bin/rm -f "${tmp_plist}"
+        # Nothing to do; avoid bootout-of-self.
+        return 0
+    fi
+
+    /bin/mv -f "${tmp_plist}" "${GUARDIAN_PLIST_PATH}"
     /usr/sbin/chown root:wheel "${GUARDIAN_PLIST_PATH}"
     /bin/chmod 0644 "${GUARDIAN_PLIST_PATH}"
 
-    # Bootstrap (idempotent: bootout first if already loaded).
+    # (Re)bootstrap. Only reached when the plist actually changed or the
+    # daemon isn't loaded — so we are not the running daemon process here.
     /bin/launchctl bootout "system/${GUARDIAN_PLIST_LABEL}" 2>/dev/null || true
     if /bin/launchctl bootstrap system "${GUARDIAN_PLIST_PATH}"; then
         log_info "Guardian LaunchDaemon installed and loaded."
@@ -265,7 +298,8 @@ action_lockdown() {
         for p in "${GSA_LOCKDOWN_PATHS[@]}"; do
             reset_path "${p}"
         done
-        # Keep the guardian loaded so 'bypass off' fully re-asserts on next tick.
+        # Ensure the guardian is installed (no-op if already loaded with same
+        # plist) so 'bypass off' can rely on it.
         install_guardian || true
         [ ${VERBOSE} -eq 1 ] && action_query
         return 0

@@ -109,6 +109,29 @@ Remove the file to re-arm. This mirrors the Windows `IsAntiTamperingDisabled` re
 2. Push the new GSA Client `.pkg` (Apps → macOS → Line-of-business app).
 3. Re-assign `intune/install-lockdown.sh`.
 
+### Bypass mode (on-demand temporary unlock)
+
+For one-off troubleshooting or upgrades where you don't want to uninstall the
+tool, use bypass mode instead. It drops a root-owned killswitch flag at
+`/Library/Application Support/Microsoft/GSA-Lockdown/IsAntiTamperingDisabled`
+that the guardian honors — any subsequent `lockdown` run becomes an `unlock`.
+
+| Goal | Intune script |
+|---|---|
+| Enable bypass on selected devices | `intune/bypass-enable.sh` (one-shot) |
+| Re-assert lockdown when finished | `intune/bypass-disable.sh` (one-shot) |
+
+Local equivalents:
+
+```bash
+sudo /usr/local/libexec/macgsa-lockdown/macgsa-lockdown.sh bypass on
+sudo /usr/local/libexec/macgsa-lockdown/macgsa-lockdown.sh bypass status
+sudo /usr/local/libexec/macgsa-lockdown/macgsa-lockdown.sh bypass off
+```
+
+The guardian LaunchDaemon stays installed throughout, so flipping back to
+locked is a single Intune script run — no reinstall, no re-enrollment.
+
 ## What's verified vs. what's not
 
 | | |

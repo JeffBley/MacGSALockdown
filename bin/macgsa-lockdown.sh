@@ -6,9 +6,14 @@
 # that a local admin cannot casually uninstall or delete it.
 #
 # Modes mirror the Windows tool's verbs:
-#   query     (default) - read-only inspection of every in-scope object
-#   lockdown  - apply schg + deny ACEs, install guardian LaunchDaemon
-#   reset     - remove schg + deny ACEs, bootout guardian (required before upgrade)
+#   query        (default) - read-only inspection of every in-scope object
+#   lockdown     - apply schg + deny ACEs, install guardian LaunchDaemon
+#   reset        - remove schg + deny ACEs, bootout guardian (required before upgrade)
+#   bypass on    - enable bypass mode: drop the killswitch flag, unlock everything,
+#                  leave guardian installed but inert. Intended to be run from MDM
+#                  (Intune script) for on-demand temporary unlock.
+#   bypass off   - clear bypass: remove the killswitch and re-apply lockdown.
+#   bypass status- print whether bypass mode is active.
 #
 # Threat model: stops casual tampering (drag-to-Trash, the bundled
 # Uninstaller, plain `sudo rm`). It does NOT stop a determined root user who
@@ -30,17 +35,25 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 
 VERBOSE=0
 ACTION="query"
+BYPASS_SUBCMD=""
 
 usage() {
     cat >&2 <<EOF
-Usage: sudo $0 [query|lockdown|reset] [--verbose]
+Usage: sudo $0 [query|lockdown|reset|bypass on|bypass off|bypass status] [--verbose]
 
-  query     Read-only state report (default). Does not require root for
-            most checks, but root is recommended for complete output.
-  lockdown  Apply schg + deny ACEs to GSA app + uninstaller, install the
-            guardian LaunchDaemon. Requires root.
-  reset    Remove schg + deny ACEs, bootout + remove the guardian. Required
-            before any legitimate GSA upgrade. Requires root.
+  query           Read-only state report (default). Does not require root for
+                  most checks, but root is recommended for complete output.
+  lockdown        Apply schg + deny ACEs to GSA app + uninstaller, install the
+                  guardian LaunchDaemon. Honors bypass mode (becomes a no-op /
+                  unlock when the killswitch is present). Requires root.
+  reset           Remove schg + deny ACEs, bootout + remove the guardian.
+                  Required before any legitimate GSA upgrade. Requires root.
+  bypass on       Enable bypass: drop the killswitch and unlock everything.
+                  Guardian stays installed but will not re-lock. Use from
+                  Intune to grant on-demand temporary access. Requires root.
+  bypass off      Disable bypass: remove the killswitch and re-apply lockdown.
+                  Requires root.
+  bypass status   Print whether bypass mode is currently active.
 
 Options:
   --verbose, -v   Print per-object diff.
@@ -52,6 +65,15 @@ parse_args() {
     while [ $# -gt 0 ]; do
         case "$1" in
             query|lockdown|reset) ACTION="$1" ;;
+            bypass)
+                ACTION="bypass"
+                shift
+                case "${1:-}" in
+                    on|off|status) BYPASS_SUBCMD="$1" ;;
+                    "") echo "bypass requires: on | off | status" >&2; usage; exit 64 ;;
+                    *)  echo "Unknown bypass sub-command: $1" >&2; usage; exit 64 ;;
+                esac
+                ;;
             --verbose|-v) VERBOSE=1 ;;
             --help|-h)    usage; exit 0 ;;
             *) echo "Unknown argument: $1" >&2; usage; exit 64 ;;
@@ -235,8 +257,18 @@ action_lockdown() {
     require_root
     require_macos
 
+    # Bypass mode: do NOT lock. Instead actively unlock so the guardian's
+    # periodic re-run leaves things open. Guardian itself stays installed so
+    # turning bypass off is a single MDM script.
     if killswitch_active; then
-        log_warn "Kill-switch is ACTIVE (${GSA_KILLSWITCH_FILE}). Lockdown invocation is honored, but the guardian will skip future re-assertion until the kill-switch file is removed."
+        log_warn "Bypass active (${GSA_KILLSWITCH_FILE}). Skipping lockdown and ensuring GSA paths are unlocked."
+        for p in "${GSA_LOCKDOWN_PATHS[@]}"; do
+            reset_path "${p}"
+        done
+        # Keep the guardian loaded so 'bypass off' fully re-asserts on next tick.
+        install_guardian || true
+        [ ${VERBOSE} -eq 1 ] && action_query
+        return 0
     fi
 
     write_backup_snapshot "lockdown"
@@ -251,6 +283,57 @@ action_lockdown() {
     log_info "Lockdown action complete (rc=${rc})."
     [ ${VERBOSE} -eq 1 ] && action_query
     return ${rc}
+}
+
+action_bypass() {
+    require_root
+    require_macos
+
+    case "${BYPASS_SUBCMD}" in
+        status)
+            if killswitch_active; then
+                printf 'bypass: ON  (%s present)\n' "${GSA_KILLSWITCH_FILE}"
+                exit 0
+            else
+                printf 'bypass: OFF\n'
+                exit 1   # non-zero so Intune custom compliance can detect
+            fi
+            ;;
+        on)
+            /bin/mkdir -p "${GSA_KILLSWITCH_DIR}"
+            /usr/sbin/chown root:wheel "${GSA_KILLSWITCH_DIR}"
+            /bin/chmod 0755 "${GSA_KILLSWITCH_DIR}"
+            : > "${GSA_KILLSWITCH_FILE}"
+            /usr/sbin/chown root:wheel "${GSA_KILLSWITCH_FILE}"
+            /bin/chmod 0600 "${GSA_KILLSWITCH_FILE}"
+            log_info "Bypass ENABLED. Killswitch placed at ${GSA_KILLSWITCH_FILE}."
+            # Unlock immediately rather than waiting for guardian tick.
+            for p in "${GSA_LOCKDOWN_PATHS[@]}"; do
+                reset_path "${p}"
+            done
+            [ ${VERBOSE} -eq 1 ] && action_query
+            ;;
+        off)
+            if [ -e "${GSA_KILLSWITCH_FILE}" ]; then
+                /bin/rm -f "${GSA_KILLSWITCH_FILE}"
+                log_info "Bypass DISABLED. Killswitch removed."
+            else
+                log_info "Bypass was already off (no killswitch present)."
+            fi
+            # Re-apply lockdown right away.
+            write_backup_snapshot "lockdown"
+            local rc=0
+            for p in "${GSA_LOCKDOWN_PATHS[@]}"; do
+                apply_lockdown_path "${p}" || rc=1
+            done
+            install_guardian || rc=1
+            log_info "Lockdown re-asserted after bypass off (rc=${rc})."
+            [ ${VERBOSE} -eq 1 ] && action_query
+            return ${rc}
+            ;;
+        *)
+            usage; exit 64 ;;
+    esac
 }
 
 action_reset() {
@@ -275,7 +358,8 @@ main() {
     case "${ACTION}" in
         query)    action_query ;;
         lockdown) action_lockdown ;;
-        reset)   action_reset ;;
+        reset)    action_reset ;;
+        bypass)   action_bypass ;;
         *)        usage; exit 64 ;;
     esac
 }

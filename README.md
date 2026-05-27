@@ -71,19 +71,46 @@ Remove the file to re-arm. This mirrors the Windows `IsAntiTamperingDisabled` re
 
 ## Intune deployment
 
+The profile + script combo together cover the four ways a user can take GSA
+offline. Deploy **both** to the same device group.
+
+| User attempt                                       | Blocked by                                |
+|----------------------------------------------------|-------------------------------------------|
+| Drag `Global Secure Access Client.app` to Trash    | Script: `chflags schg` + deny ACE         |
+| Move `/Applications/GlobalSecureAccessClient`      | Script: parent dir also locked            |
+| Run the bundled Uninstaller                        | Script: uninstaller binary locked         |
+| `sudo systemextensionsctl uninstall …tunnel`       | **Profile**: `RemovableSystemExtensions` empty |
+| Toggle off in System Settings → Extensions         | **Profile**: `AllowUserOverrides=false`   |
+| Click **Disable** in the GSA Client window         | **Profile**: managed VPN payload          |
+| Toggle off the VPN in System Settings → Network    | **Profile**: managed VPN payload          |
+| Revoke Full Disk Access for the GSA extension      | **Profile**: PPPC payload                 |
+| Remove the lockdown profile itself                 | **Profile**: `PayloadRemovalDisallowed`*  |
+| Run `sudo chflags noschg` then delete              | Not blocked — see [Limitations](#limitations) |
+
+*\* Only enforced on user-approved MDM or DEP/ABM-enrolled devices. Manual
+profile installs can be removed by the user; ensure enrollment is via Intune
+Company Portal or Automated Device Enrollment.*
+
 ### A. Configuration profile (MDM-only protection)
 
-1. Microsoft Intune admin center → **Devices → Configuration → Create → New policy → macOS → Templates → Custom**.
-2. Upload `profiles/GSA-Lockdown.mobileconfig`. Edit the file first to:
+1. Edit `profiles/GSA-Lockdown.mobileconfig` once:
    - Replace `Contoso` / `com.contoso.*` with your org identifiers.
-   - Regenerate the three `PayloadUUID` values (`uuidgen`).
-3. Assign to your macOS device group. Wait for sync.
-4. Verify on a test Mac:
+   - Regenerate the **five** `PayloadUUID` values:
+     ```bash
+     for _ in 1 2 3 4 5; do uuidgen; done
+     ```
+2. Intune admin center → **Devices → Configuration → Create → New policy →
+   macOS → Templates → Custom**.
+3. Upload the edited `.mobileconfig`. Device channel scope.
+4. Assign to your macOS device group. Wait one sync cycle (8 h max; force
+   with **Sync** in Company Portal).
+5. Verify on a test Mac:
    ```bash
    profiles list -all | grep -i lockdown
-   systemextensionsctl list        # GSA tunnel should show [activated enabled]
+   systemextensionsctl list                       # [activated enabled]
+   scutil --nc list                               # GSA shows (Managed)
    ```
-   In **System Settings → General → Login Items & Extensions → Network Extensions**, the GSA toggle should be greyed out.
+   Then manually try every row from the table above. Each should fail.
 
 ### B. Lockdown shell script
 
@@ -103,10 +130,26 @@ Remove the file to re-arm. This mirrors the Windows `IsAntiTamperingDisabled` re
    - **Max number of times to retry if script fails:** 3
 4. Assign to the same macOS device group.
 
+### C. (Optional) On-demand bypass scripts
+
+Upload `intune/bypass-enable.sh` and `intune/bypass-disable.sh` as separate
+shell-script payloads, **unassigned by default**. To grant a user temporary
+access (e.g. for a controlled upgrade), assign `bypass-enable.sh` to that
+single device, then re-assign `bypass-disable.sh` afterwards. The guardian
+LaunchDaemon stays installed throughout — no re-install needed.
+
 ### Upgrading GSA via Intune
 
-1. Temporarily assign `intune/uninstall-lockdown.sh` to the target group; wait for it to run.
+Two equivalent paths; pick one:
+
+**Path 1 (recommended) — bypass mode:**
+1. Assign `intune/bypass-enable.sh` to the target device(s).
 2. Push the new GSA Client `.pkg` (Apps → macOS → Line-of-business app).
+3. Assign `intune/bypass-disable.sh` to re-lock.
+
+**Path 2 — full uninstall/reinstall:**
+1. Assign `intune/uninstall-lockdown.sh`; wait for it to run.
+2. Push the new GSA Client `.pkg`.
 3. Re-assign `intune/install-lockdown.sh`.
 
 ### Bypass mode (on-demand temporary unlock)

@@ -4,29 +4,56 @@
   =========================
   Deploy via Intune as a Custom Configuration Profile (Devices > Configuration
   > Create > macOS > Templates > Custom). This profile is the part of the
-  lockdown that ONLY MDM can do:
+  lockdown that ONLY MDM can do.
+
+  Goal (verbatim from the project requirements):
+    Users must not be able to DELETE or DISABLE the GSA client.
+
+  How the four payloads in this file map to that goal:
 
     1) System Extension Policy
-       Pre-approves the GSA Network Extension (TeamID UBF8T346G9, bundle
-       com.microsoft.globalsecureaccess.tunnel) AND removes the user's ability
-       to disable or uninstall it from System Settings.
+       Pre-approves the GSA Network Extension (Team UBF8T346G9, bundle
+       com.microsoft.globalsecureaccess.tunnel) and marks it as
+       NON-REMOVABLE. Blocks: System Settings > Login Items & Extensions >
+       Network Extensions > [toggle off]. Blocks: systemextensionsctl
+       uninstall.
 
-    2) Profile-level removal disallowed
-       A standing local admin cannot delete the profile without MDM.
+    2) Managed VPN (com.apple.vpn.managed)
+       Pushes an MDM-owned VPN configuration that references the GSA tunnel
+       provider. Once installed, System Settings > Network > VPN shows the
+       config as "Managed by your organization" with the connect/disconnect
+       toggle disabled. Blocks: in-app Disable button (which simply tears
+       down the NEVPNManager session) and the System Settings VPN toggle.
+
+    3) Privacy Preferences Policy Control (PPPC / TCC)
+       Grants the GSA system extension Full Disk Access and SystemPolicy
+       permissions via MDM. Because MDM-granted TCC entries cannot be
+       revoked by the user, blocks: System Settings > Privacy & Security >
+       Full Disk Access > [uncheck Global Secure Access].
+
+    4) Profile self-protection
+       PayloadRemovalDisallowed=true prevents the local user (even an
+       admin) from deleting this profile from System Settings. Intune can
+       still retract it from the admin console.
 
   REPLACE BEFORE DEPLOYING:
-    - PayloadOrganization          -> your org name
-    - PayloadIdentifier values     -> your reverse-DNS prefix
-    - The four PayloadUUID values  -> regenerate (uuidgen) so each deployment
-                                      gets unique IDs; required by macOS to
-                                      distinguish profile versions.
+    - PayloadOrganization               -> your org name
+    - PayloadIdentifier values          -> your reverse-DNS prefix
+    - The five PayloadUUID values       -> regenerate with `uuidgen`. Required;
+                                           macOS uses UUID to track profile
+                                           versions.
 
-  Test on one machine first. Once installed:
+  Test on ONE machine first. Once installed:
     profiles list -all | grep -i lockdown          # confirm presence
     systemextensionsctl list                       # extension shows [activated enabled]
-    Try: System Settings > General > Login Items & Extensions > Network Extensions
-         The toggle for "Global Secure Access Network Extension" should be
-         greyed out / non-removable.
+    System Settings > Login Items & Extensions > Network Extensions
+        -> GSA toggle is greyed out
+    System Settings > Network > VPN
+        -> "Global Secure Access" shows "Managed" and toggle is disabled
+    System Settings > Privacy & Security > Full Disk Access
+        -> GSA entry present, checkbox greyed out
+    Open the GSA Client UI and click Disable
+        -> Operation rejected / no effect
 -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -34,7 +61,7 @@
     <key>PayloadDisplayName</key>
     <string>GSA Lockdown</string>
     <key>PayloadDescription</key>
-    <string>Hardens the Microsoft Entra Global Secure Access Client against local tampering by pre-approving its Network Extension and disallowing user removal.</string>
+    <string>Hardens the Microsoft Entra Global Secure Access Client against local tampering by pre-approving its Network Extension, locking the VPN configuration as managed, and granting required TCC permissions via MDM so the user cannot revoke them.</string>
     <key>PayloadIdentifier</key>
     <string>com.contoso.gsa.lockdown</string>
     <key>PayloadOrganization</key>
@@ -48,8 +75,11 @@
     <key>PayloadVersion</key>
     <integer>1</integer>
 
-    <!-- Block end-user removal of this profile. With Intune, you can still
-         retract it from the admin console. -->
+    <!-- Block end-user removal of this profile. With Intune you can still
+         retract it from the admin console. Requires the device to be either
+         enrolled via Automated Device Enrollment (DEP/ABM) or user-approved
+         MDM. Manual-enrolled devices ignore this key and the user can
+         remove the profile from System Settings. -->
     <key>PayloadRemovalDisallowed</key>
     <true/>
 
@@ -61,8 +91,9 @@
              ============================================================
              - AllowUserOverrides=false: end user CANNOT disable approval.
              - AllowedSystemExtensions: pre-approve GSA tunnel by bundle ID.
-             - RemovableSystemExtensions: empty list = nothing in the
-               AllowedSystemExtensions array can be removed by the user.
+             - RemovableSystemExtensions: empty array means none of the
+               pre-approved extensions can be removed by the user, even with
+               sudo systemextensionsctl uninstall.
         -->
         <dict>
             <key>PayloadType</key>
@@ -104,23 +135,27 @@
         </dict>
 
         <!-- ============================================================
-             Payload 2 (OPTIONAL but recommended): Managed VPN/NE config
+             Payload 2: Managed VPN configuration
              ============================================================
-             If you also want the VPN/NE configuration itself to be
-             non-removable from System Settings > VPN, uncomment and tune
-             the block below. NOTE: GSA writes its own NE config when the
-             client first launches; pushing an MDM-managed config in
-             parallel can conflict. Validate on a test device first; if it
-             conflicts, leave this block commented and rely solely on the
-             System Extension policy above (which is sufficient to keep
-             the extension loaded).
+             Makes the GSA tunnel appear as a "Managed" VPN under
+             System Settings > Network > VPN. The user cannot toggle a
+             managed VPN off, which is what removes the "Disable" path from
+             both the System Settings UI and the in-app Disable button
+             (which simply calls NEVPNManager.setEnabled:NO -> denied for
+             managed configs).
+
+             Microsoft's GSA Client detects an MDM-managed config and uses
+             it instead of writing its own; you should NOT see a duplicate
+             entry. If you do, validate that ProviderBundleIdentifier
+             matches the value reported by:
+                 plutil -p ~/Library/Preferences/com.microsoft.globalsecureaccess.plist
+             on a working install.
         -->
-        <!--
         <dict>
             <key>PayloadType</key>
             <string>com.apple.vpn.managed</string>
             <key>PayloadDisplayName</key>
-            <string>GSA Managed VPN Config</string>
+            <string>GSA Managed VPN</string>
             <key>PayloadIdentifier</key>
             <string>com.contoso.gsa.lockdown.vpn</string>
             <key>PayloadUUID</key>
@@ -141,15 +176,71 @@
 
             <key>VPN</key>
             <dict>
+                <!-- GSA manages its own connect/reconnect lifecycle; we
+                     only need the payload present to mark the config as
+                     managed. -->
                 <key>OnDemandEnabled</key>
-                <integer>0</integer>
+                <integer>1</integer>
                 <key>OnDemandUserOverrideDisabled</key>
                 <true/>
                 <key>DisconnectOnIdle</key>
                 <integer>0</integer>
             </dict>
+
+            <!-- Vendor-specific tunnel parameters live here. GSA reads its
+                 tenant config from Entra at sign-in, so this stays empty
+                 unless you need to pin a specific tenant or endpoint per
+                 Microsoft's deployment guidance. -->
+            <key>VendorConfig</key>
+            <dict/>
         </dict>
+
+        <!-- ============================================================
+             Payload 3: PPPC / TCC (Privacy Preferences Policy Control)
+             ============================================================
+             Pre-grants the GSA system extension the privacy permissions it
+             needs (Full Disk Access + SystemPolicyAllFiles + NetworkClient)
+             and marks them as MDM-managed so the user CANNOT revoke them
+             from System Settings > Privacy & Security. Without this, a
+             user with admin rights can break the tunnel by unchecking
+             "Global Secure Access" under Full Disk Access.
+
+             The CodeRequirement below is the standard Microsoft Developer
+             ID signature requirement scoped to Team UBF8T346G9 + the GSA
+             tunnel bundle ID. If Microsoft ever re-signs under a different
+             team, this requirement must be updated.
         -->
+        <dict>
+            <key>PayloadType</key>
+            <string>com.apple.TCC.configuration-profile-policy</string>
+            <key>PayloadDisplayName</key>
+            <string>GSA Privacy Preferences</string>
+            <key>PayloadIdentifier</key>
+            <string>com.contoso.gsa.lockdown.tcc</string>
+            <key>PayloadUUID</key>
+            <string>44444444-4444-4444-4444-444444444444</string>
+            <key>PayloadVersion</key>
+            <integer>1</integer>
+
+            <key>Services</key>
+            <dict>
+                <key>SystemPolicyAllFiles</key>
+                <array>
+                    <dict>
+                        <key>Identifier</key>
+                        <string>com.microsoft.globalsecureaccess.tunnel</string>
+                        <key>IdentifierType</key>
+                        <string>bundleID</string>
+                        <key>CodeRequirement</key>
+                        <string>identifier "com.microsoft.globalsecureaccess.tunnel" and anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = UBF8T346G9</string>
+                        <key>Allowed</key>
+                        <true/>
+                        <key>StaticCode</key>
+                        <false/>
+                    </dict>
+                </array>
+            </dict>
+        </dict>
 
     </array>
 </dict>

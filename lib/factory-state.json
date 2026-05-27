@@ -1,0 +1,35 @@
+{
+    "_comment": "Baseline expected state for in-scope GSA objects. Used by the query/lockdown logic to compute the Default/Lockdown/Partial/Custom tri-state, analogous to $DefaultScmSddlMap in the Windows tool. Populate the 'default' block once after a clean GSA install (before any lockdown) by running: sudo bin/macgsa-lockdown.sh query and copying observed values here.",
+    "schemaVersion": 1,
+    "gsaClientVersionTested": "1.1.25111702",
+    "paths": {
+        "/Applications/GlobalSecureAccessClient/Global Secure Access Client.app": {
+            "default": {
+                "owner": "root:wheel",
+                "perms": "755",
+                "flags": "-",
+                "denyAce": false
+            },
+            "lockdown": {
+                "owner": "root:wheel",
+                "perms": "755",
+                "flags": "schg",
+                "denyAce": true
+            }
+        },
+        "/Applications/GlobalSecureAccessClient/Uninstall Global Secure Access Client.app": {
+            "default": {
+                "owner": "root:wheel",
+                "perms": "755",
+                "flags": "-",
+                "denyAce": false
+            },
+            "lockdown": {
+                "owner": "root:wheel",
+                "perms": "755",
+                "flags": "schg",
+                "denyAce": true
+            }
+        }
+    }
+}

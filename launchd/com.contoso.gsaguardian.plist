@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Guardian LaunchDaemon for MacGSALockdown.
+
+  NOTE: This file is a REFERENCE COPY. The actual /Library/LaunchDaemons plist
+  is generated at install time by macgsa-lockdown.sh (so paths are guaranteed
+  to match INSTALL_BIN_DIR). Keep this file in sync if you edit the template.
+
+  Behavior:
+    - WatchPaths fires whenever anything inside /Applications/GlobalSecureAccessClient
+      changes (creation, deletion, rename, attr change). On fire, the daemon
+      re-runs `macgsa-lockdown.sh lockdown`, which re-asserts schg + deny ACEs.
+    - StartInterval (300s) is a belt-and-braces safety net in case the
+      WatchPaths event is missed.
+    - RunAtLoad re-asserts state on every boot.
+    - The kill-switch file at
+        /Library/Application Support/Microsoft/GSA-Lockdown/IsAntiTamperingDisabled
+      causes the inner script to no-op (provides parity with the Windows
+      IsAntiTamperingDisabled registry value used by GSAWatcher).
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.contoso.gsaguardian</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/usr/local/libexec/macgsa-lockdown/macgsa-lockdown.sh</string>
+        <string>lockdown</string>
+    </array>
+
+    <key>WatchPaths</key>
+    <array>
+        <string>/Applications/GlobalSecureAccessClient</string>
+    </array>
+
+    <key>StartInterval</key>
+    <integer>300</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>/var/log/macgsa-guardian.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/var/log/macgsa-guardian.log</string>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

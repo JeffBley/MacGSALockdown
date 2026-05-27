@@ -1,0 +1,156 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  GSA-Lockdown.mobileconfig
+  =========================
+  Deploy via Intune as a Custom Configuration Profile (Devices > Configuration
+  > Create > macOS > Templates > Custom). This profile is the part of the
+  lockdown that ONLY MDM can do:
+
+    1) System Extension Policy
+       Pre-approves the GSA Network Extension (TeamID UBF8T346G9, bundle
+       com.microsoft.globalsecureaccess.tunnel) AND removes the user's ability
+       to disable or uninstall it from System Settings.
+
+    2) Profile-level removal disallowed
+       A standing local admin cannot delete the profile without MDM.
+
+  REPLACE BEFORE DEPLOYING:
+    - PayloadOrganization          -> your org name
+    - PayloadIdentifier values     -> your reverse-DNS prefix
+    - The four PayloadUUID values  -> regenerate (uuidgen) so each deployment
+                                      gets unique IDs; required by macOS to
+                                      distinguish profile versions.
+
+  Test on one machine first. Once installed:
+    profiles list -all | grep -i lockdown          # confirm presence
+    systemextensionsctl list                       # extension shows [activated enabled]
+    Try: System Settings > General > Login Items & Extensions > Network Extensions
+         The toggle for "Global Secure Access Network Extension" should be
+         greyed out / non-removable.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>PayloadDisplayName</key>
+    <string>GSA Lockdown</string>
+    <key>PayloadDescription</key>
+    <string>Hardens the Microsoft Entra Global Secure Access Client against local tampering by pre-approving its Network Extension and disallowing user removal.</string>
+    <key>PayloadIdentifier</key>
+    <string>com.contoso.gsa.lockdown</string>
+    <key>PayloadOrganization</key>
+    <string>Contoso</string>
+    <key>PayloadScope</key>
+    <string>System</string>
+    <key>PayloadType</key>
+    <string>Configuration</string>
+    <key>PayloadUUID</key>
+    <string>11111111-1111-1111-1111-111111111111</string>
+    <key>PayloadVersion</key>
+    <integer>1</integer>
+
+    <!-- Block end-user removal of this profile. With Intune, you can still
+         retract it from the admin console. -->
+    <key>PayloadRemovalDisallowed</key>
+    <true/>
+
+    <key>PayloadContent</key>
+    <array>
+
+        <!-- ============================================================
+             Payload 1: System Extension policy
+             ============================================================
+             - AllowUserOverrides=false: end user CANNOT disable approval.
+             - AllowedSystemExtensions: pre-approve GSA tunnel by bundle ID.
+             - RemovableSystemExtensions: empty list = nothing in the
+               AllowedSystemExtensions array can be removed by the user.
+        -->
+        <dict>
+            <key>PayloadType</key>
+            <string>com.apple.system-extension-policy</string>
+            <key>PayloadDisplayName</key>
+            <string>GSA System Extension Lockdown</string>
+            <key>PayloadIdentifier</key>
+            <string>com.contoso.gsa.lockdown.sysext</string>
+            <key>PayloadUUID</key>
+            <string>22222222-2222-2222-2222-222222222222</string>
+            <key>PayloadVersion</key>
+            <integer>1</integer>
+
+            <key>AllowUserOverrides</key>
+            <false/>
+
+            <key>AllowedSystemExtensions</key>
+            <dict>
+                <key>UBF8T346G9</key>
+                <array>
+                    <string>com.microsoft.globalsecureaccess.tunnel</string>
+                </array>
+            </dict>
+
+            <key>AllowedSystemExtensionTypes</key>
+            <dict>
+                <key>UBF8T346G9</key>
+                <array>
+                    <string>NetworkExtension</string>
+                </array>
+            </dict>
+
+            <!-- Empty array = none of the allowed extensions are user-removable. -->
+            <key>RemovableSystemExtensions</key>
+            <dict>
+                <key>UBF8T346G9</key>
+                <array/>
+            </dict>
+        </dict>
+
+        <!-- ============================================================
+             Payload 2 (OPTIONAL but recommended): Managed VPN/NE config
+             ============================================================
+             If you also want the VPN/NE configuration itself to be
+             non-removable from System Settings > VPN, uncomment and tune
+             the block below. NOTE: GSA writes its own NE config when the
+             client first launches; pushing an MDM-managed config in
+             parallel can conflict. Validate on a test device first; if it
+             conflicts, leave this block commented and rely solely on the
+             System Extension policy above (which is sufficient to keep
+             the extension loaded).
+        -->
+        <!--
+        <dict>
+            <key>PayloadType</key>
+            <string>com.apple.vpn.managed</string>
+            <key>PayloadDisplayName</key>
+            <string>GSA Managed VPN Config</string>
+            <key>PayloadIdentifier</key>
+            <string>com.contoso.gsa.lockdown.vpn</string>
+            <key>PayloadUUID</key>
+            <string>33333333-3333-3333-3333-333333333333</string>
+            <key>PayloadVersion</key>
+            <integer>1</integer>
+
+            <key>UserDefinedName</key>
+            <string>Global Secure Access</string>
+            <key>VPNType</key>
+            <string>VPN</string>
+            <key>VPNSubType</key>
+            <string>com.microsoft.globalsecureaccess.tunnel</string>
+            <key>ProviderBundleIdentifier</key>
+            <string>com.microsoft.globalsecureaccess.tunnel</string>
+            <key>ProviderType</key>
+            <string>packet-tunnel</string>
+
+            <key>VPN</key>
+            <dict>
+                <key>OnDemandEnabled</key>
+                <integer>0</integer>
+                <key>OnDemandUserOverrideDisabled</key>
+                <true/>
+                <key>DisconnectOnIdle</key>
+                <integer>0</integer>
+            </dict>
+        </dict>
+        -->
+
+    </array>
+</dict>
+</plist>

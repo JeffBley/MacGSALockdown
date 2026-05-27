@@ -1,0 +1,14 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*~
+
+# Local snapshots / logs (generated at runtime)
+*.log
+macgsa-lockdown-backup-*.json

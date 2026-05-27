@@ -61,7 +61,10 @@ _log() {
         echo "${line}" >> "${TOOL_LOG}" 2>/dev/null || true
     fi
     # Mirror to unified log so it shows up in Console.app.
-    /usr/bin/logger -t macgsa-lockdown -p "user.${level,,}" -- "${msg}" 2>/dev/null || \
+    # NOTE: macOS ships bash 3.2 — avoid bash 4+ ${var,,} lowercasing.
+    local level_lc
+    level_lc="$(printf '%s' "$level" | tr '[:upper:]' '[:lower:]')"
+    /usr/bin/logger -t macgsa-lockdown -p "user.${level_lc}" -- "${msg}" 2>/dev/null || \
         /usr/bin/logger -t macgsa-lockdown -- "${msg}" 2>/dev/null || true
 }
 

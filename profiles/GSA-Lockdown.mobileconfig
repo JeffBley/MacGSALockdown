@@ -169,23 +169,30 @@
             <string>VPN</string>
             <key>VPNSubType</key>
             <string>com.microsoft.globalsecureaccess.tunnel</string>
-            <key>ProviderBundleIdentifier</key>
-            <string>com.microsoft.globalsecureaccess.tunnel</string>
-            <key>ProviderType</key>
-            <string>packet-tunnel</string>
 
+            <!-- Per Apple's VPN payload schema, when VPNType=VPN with a
+                 custom NetworkExtension provider, ProviderBundleIdentifier,
+                 ProviderType, AuthenticationMethod, and RemoteAddress all
+                 live INSIDE the VPN dict. RemoteAddress must be a non-empty
+                 string even though GSA ignores it; "DEFAULT" is the
+                 Microsoft-recommended placeholder. -->
             <key>VPN</key>
             <dict>
-                <!-- GSA manages its own connect/reconnect lifecycle; we
-                     only need the payload present to mark the config as
-                     managed. -->
-                <key>OnDemandEnabled</key>
-                <integer>1</integer>
-                <key>OnDemandUserOverrideDisabled</key>
-                <true/>
-                <key>DisconnectOnIdle</key>
-                <integer>0</integer>
+                <key>AuthenticationMethod</key>
+                <string></string>
+                <key>RemoteAddress</key>
+                <string>DEFAULT</string>
+                <key>ProviderBundleIdentifier</key>
+                <string>com.microsoft.globalsecureaccess.tunnel</string>
+                <key>ProviderType</key>
+                <string>packet-tunnel</string>
             </dict>
+
+            <!-- Disallows the user toggling the managed VPN off from
+                 System Settings > Network > VPN. This is a top-level VPN
+                 payload key (not inside the VPN dict). -->
+            <key>OnDemandUserOverrideDisabled</key>
+            <true/>
 
             <!-- Vendor-specific tunnel parameters live here. GSA reads its
                  tenant config from Entra at sign-in, so this stays empty

@@ -14,6 +14,10 @@ GSA_UNINSTALLER_APP="${GSA_BASE_DIR}/Uninstall Global Secure Access Client.app"
 GSA_LOCKDOWN_PATHS=(
     "${GSA_APP}"
     "${GSA_UNINSTALLER_APP}"
+    # Also lock the containing folder so the user can't move/rename the whole
+    # parent directory to Trash (children's schg flag travels with the parent
+    # on a rename and does not block the rename itself).
+    "${GSA_BASE_DIR}"
 )
 
 # Bundle / pkg identifiers (from `pkgutil --pkg-info com.microsoft.globalsecureaccess`

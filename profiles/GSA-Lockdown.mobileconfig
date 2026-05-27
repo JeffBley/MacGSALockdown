@@ -63,15 +63,15 @@
     <key>PayloadDescription</key>
     <string>Hardens the Microsoft Entra Global Secure Access Client against local tampering by pre-approving its Network Extension, locking the VPN configuration as managed, and granting required TCC permissions via MDM so the user cannot revoke them.</string>
     <key>PayloadIdentifier</key>
-    <string>com.contoso.gsa.lockdown</string>
+    <string>com.aperturescience.gsa.lockdown</string>
     <key>PayloadOrganization</key>
-    <string>Contoso</string>
+    <string>Aperture Science</string>
     <key>PayloadScope</key>
     <string>System</string>
     <key>PayloadType</key>
     <string>Configuration</string>
     <key>PayloadUUID</key>
-    <string>11111111-1111-1111-1111-111111111111</string>
+    <string>3491F93F-2BAD-418E-AF18-D33FA2574FB9</string>
     <key>PayloadVersion</key>
     <integer>1</integer>
 
@@ -101,9 +101,9 @@
             <key>PayloadDisplayName</key>
             <string>GSA System Extension Lockdown</string>
             <key>PayloadIdentifier</key>
-            <string>com.contoso.gsa.lockdown.sysext</string>
+            <string>com.aperturescience.gsa.lockdown.sysext</string>
             <key>PayloadUUID</key>
-            <string>22222222-2222-2222-2222-222222222222</string>
+            <string>3AFC7254-8C78-42FB-A31F-C24C49ABC83F</string>
             <key>PayloadVersion</key>
             <integer>1</integer>
 
@@ -157,9 +157,9 @@
             <key>PayloadDisplayName</key>
             <string>GSA Managed VPN</string>
             <key>PayloadIdentifier</key>
-            <string>com.contoso.gsa.lockdown.vpn</string>
+            <string>com.aperturescience.gsa.lockdown.vpn</string>
             <key>PayloadUUID</key>
-            <string>33333333-3333-3333-3333-333333333333</string>
+            <string>D9CC05BB-890E-4D24-9D5A-656B75DDE469</string>
             <key>PayloadVersion</key>
             <integer>1</integer>
 
@@ -216,9 +216,9 @@
             <key>PayloadDisplayName</key>
             <string>GSA Privacy Preferences</string>
             <key>PayloadIdentifier</key>
-            <string>com.contoso.gsa.lockdown.tcc</string>
+            <string>com.aperturescience.gsa.lockdown.tcc</string>
             <key>PayloadUUID</key>
-            <string>44444444-4444-4444-4444-444444444444</string>
+            <string>1C1D9483-475A-40BA-92F9-DB71DE938E1D</string>
             <key>PayloadVersion</key>
             <integer>1</integer>
 
